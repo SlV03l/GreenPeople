@@ -1,3 +1,8 @@
+import sys
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap, QIcon, QFont
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLabel, QMessageBox, QDialog, QVBoxLayout, \
+    QLineEdit, QGridLayout, QScrollArea, QWidget
 import cv2
 import numpy as np
 import bluetooth
@@ -6,7 +11,12 @@ import threading
 
 socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
 socket.connect(('98:D3:71:F6:5D:5D', 1))
-IP = "http://192.168.251.192:8080/video?.mjpeg%22"
+IP = "http://192.168.1.65:8080/video?.mjpeg%22"
+
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+cap.set(cv2.CAP_PROP_FPS, 30)
 
 OBJECT_WIDTH = 30.7 # Ширина объекта в сантиметрах
 OBJECT_HEIGHT = 22 # Высота объекта в сантиметрах
@@ -34,12 +44,6 @@ color_ranges = {'yellow': [np.array([10, 50, 50]), np.array([35, 255, 255])],
                 'green': [np.array([50, 50, 50]), np.array([70, 255, 255])],
                 'lilac': [np.array([140, 50, 50]), np.array([170, 255, 255])]
                 }
-
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-cap.set(cv2.CAP_PROP_FPS, 30)
-cap.open(IP)
 
 def toggle_bot1(dx):
     if dx > 0:
@@ -174,41 +178,331 @@ def find_and_draw_contours(mask, color_name, frame):
                     if START:
                         threading.Thread(target=controlling, args=(contour, cX, cY)).start()
 
+class SettingsWindow(QDialog):
+    def __init__(self):
+        super().__init__()
 
-while True:
-    ret, frame = cap.read()
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        self.setWindowTitle("Настройки")
+        self.resize(600, 300)
 
-    draw_grid(frame)
+        background_image_path = 'SettingAg.png'
 
-    for color_name, ranges in color_ranges.items():
-        mask = cv2.inRange(hsv, ranges[0], ranges[1])
-        if len(ranges) > 2:
-            mask = cv2.bitwise_or(cv2.inRange(hsv, ranges[2], ranges[3]), mask)
-        if color_name == DogMode:
-            threading.Thread(target=find_and_draw_contours, args=(mask, color_name, frame)).start()
+        # Установка фонового изображения
+        background_image = QPixmap(background_image_path)
+        background_label = QLabel(self)
+        background_label.setPixmap(background_image)
+        background_label.setScaledContents(True)
+        background_label.setGeometry(0, 0, self.width(), self.height())
 
-    resized_frame = cv2.resize(frame, (1280, 720))
-    cv2.imshow('AgroVision 1.1.2', resized_frame)
+        layout = QGridLayout()
 
-    def exit_and_close_socket():
-        socket.close()
-        exit()
+        self.font = QFont("times new roman", 14, QFont.Bold)  # Сделать font атрибутом класса
+        # Лейбл IP
+        ip_label = QLabel("CAMERA IP:")
+        ip_label.setFont(self.font)
+        layout.addWidget(ip_label, 0, 0)
 
-    key = cv2.waitKey(1)
-    key_dict = {
-        27: lambda: exit_and_close_socket(),
-        ord('='): lambda: socket.send('5'),
-        ord('-'): lambda: socket.send('6'),
-        ord('a'): lambda: socket.send('20 '),
-        ord('d'): lambda: socket.send('30 '),
-        ord('w'): lambda: socket.send('1'),
-        ord('s'): lambda: socket.send('4r'),
-        ord('r'): lambda: toggle_start(),
-        ord('.'): lambda: update_color('right'),
-        ord(','): lambda: update_color('left'),
-    }
-    key_dict.get(key, lambda: None)()
+        # Поле ввода IP
+        global IP
+        self.ip_input = QLineEdit()
+        self.ip_input.setText(IP[7:24])
+        self.ip_input.setStyleSheet("border-radius: 5px; background-color: rgba(255, 255, 255, 0.6); padding: 8px;")
+        layout.addWidget(self.ip_input, 1, 0)
 
-cap.release()
-cv2.destroyAllWindows()
+        # Лейбл Color
+        color_label = QLabel("Color:")
+        color_label.setFont(self.font)
+        layout.addWidget(color_label, 0, 1, alignment=Qt.AlignHCenter)
+
+        # Поле ввода Color
+        self.color_input = QLineEdit()
+        self.color_input.setStyleSheet("border-radius: 5px; background-color: rgba(255, 255, 255, 0.6); padding: 8px;")
+        layout.addWidget(self.color_input, 1, 1)
+
+        # Лейбл Color_Range
+        color_range_label = QLabel("Диапазон цвета:")
+        color_range_label.setFont(self.font)
+        layout.addWidget(color_range_label, 0, 2, alignment=Qt.AlignHCenter)
+
+        # Поле ввода lower_range
+        self.lower_range_input = QLineEdit()
+        self.lower_range_input.setStyleSheet("border-radius: 5px; background-color: rgba(255, 255, 255, 0.6); padding: 8px;")
+        layout.addWidget(self.lower_range_input, 1, 2)
+
+        # Поле ввода upper_range
+        self.upper_range_input = QLineEdit()
+        self.upper_range_input.setStyleSheet("border-radius: 5px; background-color: rgba(255, 255, 255, 0.6); padding: 8px;")
+        layout.addWidget(self.upper_range_input, 2, 2)
+
+        button_transparency = 0.1
+        # Кнопка добавить
+        add_button = QPushButton("Добавить")
+        add_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(0, 0, 0, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 15px; }}")
+        layout.addWidget(add_button, 3, 0)
+
+        # Кнопка удалить
+        remove_button = QPushButton("Удалить")
+        remove_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(0, 0, 0, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 15px; }}")
+        layout.addWidget(remove_button, 4, 0)
+
+        # Кнопка изменить
+        update_button = QPushButton("Изменить")
+        update_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(0, 0, 0, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 15px; }}")
+        layout.addWidget(update_button, 5, 0)
+
+        # Кнопка сохранить
+        save_button = QPushButton("Сохранить IP")
+        save_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(125, 209, 156, {0}); font-size: 20px; font-family: Comic Sans MS; border-radius: 20px; }}")
+        layout.addWidget(save_button, 6, 0)
+
+        # Создание виджета для поля со скроллом
+        self.scroll_widget = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_widget)
+        self.scroll_layout.setSpacing(10)
+
+        # Глобальная переменная color_ranges
+        global color_ranges
+        global colors
+        for i, (key, value) in enumerate(color_ranges.items()):
+            label = QLabel(f"{key}: {value}")
+            label.setFont(self.font)
+            label.setStyleSheet("font-size: 12px;")
+            self.scroll_layout.addWidget(label)
+
+        # Создание виджета скролла и добавление поля со скроллом
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("background-color: rgba(255, 255, 255, 0.3);")
+        self.scroll_area.setWidget(self.scroll_widget)
+        layout.addWidget(self.scroll_area, 3, 1, -1, 2)
+
+        # Обработчик для кнопок
+        remove_button.clicked.connect(self.remove_color_range)
+        add_button.clicked.connect(self.add_color)
+        update_button.clicked.connect(self.update_color_range)
+        save_button.clicked.connect(self.save_ip)
+
+        self.setLayout(layout)
+
+    def add_color(self):
+        color_input_text = self.color_input.text()
+        lower_range_text = self.lower_range_input.text()
+        upper_range_text = self.upper_range_input.text()
+
+        if not color_input_text or not lower_range_text or not upper_range_text:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, заполните все поля.")
+        else:
+            lower_range_values = [int(x.strip()) for x in lower_range_text.split(',')]
+            upper_range_values = [int(x.strip()) for x in upper_range_text.split(',')]
+
+            if len(lower_range_values) == 3 or len(lower_range_values) == 2 and len(upper_range_values) == 3 or len(
+                    upper_range_values) == 2:
+                lower_range_np = np.array(lower_range_values)
+                upper_range_np = np.array(upper_range_values)
+
+                color_ranges[color_input_text] = [lower_range_np, upper_range_np]
+                colors.append(color_input_text)
+                self.color_input.clear()
+                self.lower_range_input.clear()
+                self.upper_range_input.clear()
+                QMessageBox.information(self, "Успех", f"Цвет {color_input_text} успешно добавлен.")
+                self.update_color_range_labels()
+            else:
+                QMessageBox.warning(self, 'Ошибка', 'Некорректные значения диапазона цвета.')
+
+    def remove_color_range(self):
+        color_input_text = self.color_input.text()
+        if color_input_text in color_ranges:
+            del color_ranges[color_input_text]
+            colors.remove(color_input_text)
+            self.color_input.clear()
+            QMessageBox.information(self, "Успех", f"Цвет {color_input_text} успешно удален.")
+            self.update_color_range_labels()
+        else:
+            QMessageBox.warning(self, "Ошибка", f"Цвет {color_input_text} не найден.")
+    def update_color_range_labels(self):
+        # Очистка виджета со скроллом
+        scroll_widget = self.scroll_area.widget()
+        scroll_layout = scroll_widget.layout()
+        while scroll_layout.count():
+            item = scroll_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        # Перерисовка виджета со скроллом
+        for i, (key, value) in enumerate(color_ranges.items()):
+            label = QLabel(f"{key}: {value}")
+            label.setFont(self.font)
+            label.setStyleSheet("font-size: 12px;")
+            scroll_layout.addWidget(label)
+
+    def update_color_range(self):
+        color_input_text = self.color_input.text()
+        lower_range_text = self.lower_range_input.text()
+        upper_range_text = self.upper_range_input.text()
+
+        if not color_input_text or not lower_range_text or not upper_range_text:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, заполните все поля.")
+        else:
+            lower_range_values = [int(x.strip()) for x in lower_range_text.split(',')]
+            upper_range_values = [int(x.strip()) for x in upper_range_text.split(',')]
+
+            if len(lower_range_values) == 3 or len(lower_range_values) == 2 and len(upper_range_values) == 3 or len(
+                    upper_range_values) == 2:
+                lower_range_np = np.array(lower_range_values)
+                upper_range_np = np.array(upper_range_values)
+
+                color_ranges[color_input_text] = [lower_range_np, upper_range_np]
+                self.color_input.clear()
+                self.lower_range_input.clear()
+                self.upper_range_input.clear()
+                QMessageBox.information(self, "Успех", f"Цвет {color_input_text} успешно изменен.")
+                self.update_color_range_labels()
+            else:
+                QMessageBox.warning(self, 'Ошибка', 'Некорректные значения диапазона цвета.')
+
+    def save_ip(self):
+        ip_text = self.ip_input.text()
+
+        if not ip_text:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, введите IP-адрес.")
+        else:
+            global IP
+            IP = f"http://{ip_text}/video?.mjpeg%22"
+            QMessageBox.information(self, "Успех", "IP успешно сохранен.")
+class MainWindow(QMainWindow):
+    def __init__(self, background_image_path):
+        super().__init__()
+
+        icon = QIcon("AgroVision.png")
+        self.setWindowIcon(icon)
+
+        # Установка заднего фона
+        background_image = QPixmap(background_image_path)
+        background_label = QLabel(self)
+        background_label.setPixmap(background_image)
+        background_label.setScaledContents(True)
+
+        # Получение размеров фона
+        background_size = background_image.size()
+
+        # Установка размеров окна
+        self.setFixedSize(background_size)
+
+        # Создание кнопок
+        start_button = QPushButton('Начать', self)
+        settings_button = QPushButton('Настройки', self)
+        exit_button = QPushButton('Выход', self)
+
+        # Расположение кнопок
+        button_margin = 20 * 5
+        button_width = 70
+        button_height = 20
+        start_button.move((background_size.width() - button_width * 3) // 2,
+                          (background_size.height() - button_height) // 2 - button_margin)
+        settings_button.move((background_size.width() - button_width * 3) // 2,
+                             (background_size.height() - button_height) // 2)
+        exit_button.move((background_size.width() - button_width * 3) // 2,
+                         (background_size.height() - button_height) // 2 + button_margin)
+
+        button_width = 120 * 2
+        button_height = 40 * 2
+        start_button.resize(button_width, button_height)
+        settings_button.resize(button_width, button_height)
+        exit_button.resize(button_width, button_height)
+
+        button_transparency = 0.6
+        start_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(255, 255, 255, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 20px; }}"
+        )
+        settings_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(255, 255, 255, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 20px; }}"
+        )
+        exit_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(255, 255, 255, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 20px; }}"
+        )
+
+        # Установка обработчиков для кнопок
+        start_button.clicked.connect(self.start_button_clicked)
+        settings_button.clicked.connect(self.settings_button_clicked)
+        exit_button.clicked.connect(self.exit_button_clicked)
+
+        # Установка основного виджета
+        self.setCentralWidget(background_label)
+
+    def start_button_clicked(self):
+        cap.open(IP)
+        self.close()
+        while True:
+            ret, frame = cap.read()
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+            draw_grid(frame)
+
+            for color_name, ranges in color_ranges.items():
+                mask = cv2.inRange(hsv, ranges[0], ranges[1])
+                if len(ranges) > 2:
+                    mask = cv2.bitwise_or(cv2.inRange(hsv, ranges[2], ranges[3]), mask)
+                if color_name == DogMode:
+                    threading.Thread(target=find_and_draw_contours, args=(mask, color_name, frame)).start()
+
+            resized_frame = cv2.resize(frame, (1280, 720))
+            cv2.imshow('AgroVision 1.1.2', resized_frame)
+
+            def exit_and_close_socket():
+                socket.close()
+                exit()
+
+            key = cv2.waitKey(1)
+            key_dict = {
+                27: lambda: exit_and_close_socket(),
+                ord('='): lambda: socket.send('5'),
+                ord('-'): lambda: socket.send('6'),
+                ord('a'): lambda: socket.send('20 '),
+                ord('d'): lambda: socket.send('30 '),
+                ord('w'): lambda: socket.send('1'),
+                ord('s'): lambda: socket.send('4'),
+                ord('r'): lambda: toggle_start(),
+                ord('.'): lambda: update_color('right'),
+                ord(','): lambda: update_color('left'),
+            }
+            key_dict.get(key, lambda: None)()
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+    def settings_button_clicked(self):
+        settings_window = SettingsWindow()
+        settings_window.exec_()
+
+    def exit_button_clicked(self):
+        reply = QMessageBox.question(self, 'Подтверждение выхода',
+                                     'Вы действительно хотите выйти?',
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            # Выбрано "Да" - закрыть программу
+            self.close()
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+
+    # Укажите путь к вашей иконке в качестве аргумента
+    app_icon = QIcon('AgroVision.png')
+    app.setWindowIcon(app_icon)
+
+    # Укажите путь к вашей картинке в качестве аргумента
+    background_image_path = 'AgroV.png'
+
+    window = MainWindow(background_image_path)
+    window.setWindowTitle("АгроЗрение - Сливницин РПС-21")
+    window.show()
+
+    sys.exit(app.exec_())
