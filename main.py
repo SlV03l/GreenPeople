@@ -3,17 +3,28 @@ import numpy as np
 import bluetooth
 import time
 import threading
+import torch
 
 socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
 socket.connect(('98:D3:71:F6:5D:5D', 1))
 IP = "http://192.168.251.192:8080/video?.mjpeg%22"
 
-OBJECT_WIDTH = 30.7 # Ширина объекта в сантиметрах
-OBJECT_HEIGHT = 22 # Высота объекта в сантиметрах
-IMAGE_WIDTH = 1920 # Ширина изображения в пикселях
-IMAGE_HEIGHT = 1080 # Высота изображения в пикселях
-SENSOR_WIDTH = 5.6 # Ширина сенсора камеры в мм
-FOCAL_LENGTH = 26 # Фокусное расстояние в мм
+OBJECT_WIDTH = 30.7  # Ширина объекта в сантиметрах
+OBJECT_HEIGHT = 22  # Высота объекта в сантиметрах
+IMAGE_WIDTH = 1920  # Ширина изображения в пикселях
+IMAGE_HEIGHT = 1080  # Высота изображения в пикселях
+SENSOR_WIDTH = 5.6  # Ширина сенсора камеры в мм
+FOCAL_LENGTH = 26  # Фокусное расстояние в мм
+
+# Сама нейронная сеть
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='med-P6-gen33.pt', force_reload=True)
+# Здесь можете по циклу пройтись и в src_image записывать пути фоток или как там у вас это работает
+src_image = 'test_photo.jpg'
+results = model(src_image)
+# Этот метод просто выводит в консоль результат распознавания
+#   image 1/1: 1142x2560 1 1_17, 1 3_24, 1 5_19_1, 1 5_16
+#   Speed: 27.0ms pre-process, 204.0ms inference, 2.0ms NMS per image at shape (1, 3, 288, 640)
+results.print()
 
 DEL = 0.08
 MinDist = 100
@@ -41,13 +52,15 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 cap.set(cv2.CAP_PROP_FPS, 30)
 cap.open(IP)
 
+
 def toggle_bot1(dx):
     if dx > 0:
-        socket.send('3'+str(dx)+" ")
+        socket.send('3' + str(dx) + " ")
         print('Вправо', dx)
     elif dx < 0:
-        socket.send('2'+str(dx)+" ")
+        socket.send('2' + str(dx) + " ")
         print('Влево', dx)
+
 
 def toggle_bot2(dy):
     if dy > 0:
@@ -57,11 +70,13 @@ def toggle_bot2(dy):
         socket.send('6')
         print('Вверх')
 
+
 def toggle_bot3(distance):
     global MinDist
     if distance > MinDist:
         socket.send('1')
         print(f"{distance} -> Вперед")
+
 
 def toggle_start():
     global START
@@ -72,6 +87,7 @@ def toggle_start():
     else:
         START = False
         Dog = 'OFF'
+
 
 def update_color(dir):
     global index, DogMode
@@ -100,9 +116,11 @@ def calculate_distance(contour):
 
     return distance
 
+
 def process_color_range(hsv, color_range, color_name, frame):
     mask = cv2.inRange(hsv, color_range[0], color_range[1])
     find_and_draw_contours(mask, color_name, frame)
+
 
 def draw_grid(frames):
     cell_size_x = frames.shape[1] // 3
@@ -116,9 +134,12 @@ def draw_grid(frames):
     cross_size = min(80, 80)
     cv2.line(frames, (center_x - cross_size, center_y), (center_x + cross_size, center_y), (194, 39, 178), 6)
     cv2.line(frames, (center_x, center_y - cross_size), (center_x, center_y + cross_size), (194, 39, 178), 6)
-    cv2.putText(frames, 'Color: ' + DogMode, (center_x - 945, center_y + 460), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
-    cv2.putText(frames, 'DogMode: ' + Dog, (center_x - 945, center_y + 520), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+    cv2.putText(frames, 'Color: ' + DogMode, (center_x - 945, center_y + 460), cv2.FONT_HERSHEY_TRIPLEX, 1.5,
+                (255, 255, 255), 3, cv2.LINE_AA)
+    cv2.putText(frames, 'DogMode: ' + Dog, (center_x - 945, center_y + 520), cv2.FONT_HERSHEY_TRIPLEX, 1.5,
+                (255, 255, 255), 3, cv2.LINE_AA)
     return frames
+
 
 def controlling(contour, cX, cY):
     # Получаем размеры кадра
@@ -148,6 +169,7 @@ def controlling(contour, cX, cY):
 
         toggle_bot3(dist)
 
+
 def find_and_draw_contours(mask, color_name, frame):
     ret, thresh = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -162,7 +184,8 @@ def find_and_draw_contours(mask, color_name, frame):
                 epsilon = 0.01 * cv2.arcLength(contour, True)
                 approx = cv2.approxPolyDP(contour, epsilon, True)
                 cv2.drawContours(frame, [approx], 0, (0, 255, 0), 3)
-                cv2.putText(frame, color_name, (approx[0][0][0], approx[0][0][1]), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.putText(frame, color_name, (approx[0][0][0], approx[0][0][1]), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                            (0, 0, 255), 2)
 
                 M = cv2.moments(contour)
                 if M["m00"] != 0:
@@ -191,9 +214,11 @@ while True:
     resized_frame = cv2.resize(frame, (1280, 720))
     cv2.imshow('AgroVision 1.1.2', resized_frame)
 
+
     def exit_and_close_socket():
         socket.close()
         exit()
+
 
     key = cv2.waitKey(1)
     key_dict = {
