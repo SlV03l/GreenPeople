@@ -2,21 +2,27 @@ import sys
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QIcon, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLabel, QMessageBox, QDialog, QVBoxLayout, \
-    QLineEdit, QGridLayout, QScrollArea, QWidget
+    QLineEdit, QGridLayout, QScrollArea, QWidget, QCheckBox
 import cv2
 import numpy as np
 import bluetooth
 import time
 import threading
+import torch
 
-socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-socket.connect(('98:D3:71:F6:5D:5D', 1))
-IP = "http://192.168.1.65:8080/video?.mjpeg%22"
+IP = "http://192.168.172.51:8080/video?.mjpeg%22"
+
+socket = 0
+socket_open = False
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 cap.set(cv2.CAP_PROP_FPS, 30)
+
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='med-P6-gen33.pt', force_reload=True)
+
+camera_update = True
 
 OBJECT_WIDTH = 30.7 # Ширина объекта в сантиметрах
 OBJECT_HEIGHT = 22 # Высота объекта в сантиметрах
@@ -45,27 +51,65 @@ color_ranges = {'yellow': [np.array([10, 50, 50]), np.array([35, 255, 255])],
                 'lilac': [np.array([140, 50, 50]), np.array([170, 255, 255])]
                 }
 
+Face = False
+Face_Cont = 'OFF'
+face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+
+Sign = False
+Sign_Cont = 'OFF'
+
+def face_search():
+    global Face
+    global Face_Cont
+    if not Face:
+        Face = True
+        Face_Cont = 'ON'
+    else:
+        Face = False
+        Face_Cont = 'OFF'
+
+def sign_search():
+    global Sign
+    global Sign_Cont
+    if not Sign:
+        Sign = True
+        Sign_Cont = 'ON'
+    else:
+        Sign = False
+        Sign_Cont = 'OFF'
+
+def exit_and_close_socket():
+    global socket_open
+    if socket_open:
+        socket.close()
+    exit()
 def toggle_bot1(dx):
-    if dx > 0:
-        socket.send('3'+str(dx)+" ")
-        print('Вправо', dx)
-    elif dx < 0:
-        socket.send('2'+str(dx)+" ")
-        print('Влево', dx)
+    global socket_open
+    if socket_open:
+        if dx > 0:
+            socket.send('3'+str(dx)+" ")
+            print('Вправо', dx)
+        elif dx < 0:
+            socket.send('2'+str(dx)+" ")
+            print('Влево', dx)
 
 def toggle_bot2(dy):
-    if dy > 0:
-        socket.send('5')
-        print('Вниз')
-    elif dy < 0:
-        socket.send('6')
-        print('Вверх')
+    global socket_open
+    if socket_open:
+        if dy > 0:
+            socket.send('5')
+            print('Вниз')
+        elif dy < 0:
+            socket.send('6')
+            print('Вверх')
 
 def toggle_bot3(distance):
     global MinDist
-    if distance > MinDist:
-        socket.send('1')
-        print(f"{distance} -> Вперед")
+    global socket_open
+    if socket_open:
+        if distance > MinDist:
+            socket.send('1')
+            print(f"{distance} -> Вперед")
 
 def toggle_start():
     global START
@@ -109,6 +153,7 @@ def process_color_range(hsv, color_range, color_name, frame):
     find_and_draw_contours(mask, color_name, frame)
 
 def draw_grid(frames):
+    global camera_update
     cell_size_x = frames.shape[1] // 3
     cell_size_y = frames.shape[0] // 3
     for i in range(cell_size_x, frames.shape[1], cell_size_x):
@@ -120,8 +165,16 @@ def draw_grid(frames):
     cross_size = min(80, 80)
     cv2.line(frames, (center_x - cross_size, center_y), (center_x + cross_size, center_y), (194, 39, 178), 6)
     cv2.line(frames, (center_x, center_y - cross_size), (center_x, center_y + cross_size), (194, 39, 178), 6)
-    cv2.putText(frames, 'Color: ' + DogMode, (center_x - 945, center_y + 460), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
-    cv2.putText(frames, 'DogMode: ' + Dog, (center_x - 945, center_y + 520), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+    if camera_update:
+        cv2.putText(frames, 'Road sign: ' + Sign_Cont, (center_x - 945, center_y - 500), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(frames, 'Face: ' + Face_Cont, (center_x - 945, center_y + 400), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(frames, 'Color: ' + DogMode, (center_x - 945, center_y + 460), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(frames, 'DogMode: ' + Dog, (center_x - 945, center_y + 520), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+    else:
+        cv2.putText(frames, 'Road sign: ' + Sign_Cont, (center_x - 610, center_y - 300), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(frames, 'Face: ' + Face_Cont, (center_x - 610, center_y + 200), cv2.FONT_HERSHEY_TRIPLEX, 1.5,(255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(frames, 'Color: ' + DogMode, (center_x - 610, center_y + 260), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(frames, 'DogMode: ' + Dog, (center_x - 610, center_y + 320), cv2.FONT_HERSHEY_TRIPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
     return frames
 
 def controlling(contour, cX, cY):
@@ -152,9 +205,27 @@ def controlling(contour, cX, cY):
 
         toggle_bot3(dist)
 
+def draw_sign_boxes(frame, detections):
+    for box in detections.xyxy[0]:
+        x1, y1, x2, y2 = box[:4].int().tolist()
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+        label = f"{detections.names[int(box[5])]} {box[4]:.2f}"
+        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+        class_name = detections.names[int(box[5])]
+
+        if class_name == '3_24':
+            print('Едь медленнее, а то угодишь в канаву')
+
 def find_and_draw_contours(mask, color_name, frame):
-    ret, thresh = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
-    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if Face:
+        faces = face_cascade.detectMultiScale(frame, 1.3, 5)
+        contours = []
+        for (x, y, w, h) in faces:
+            contours.append(np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.int32))
+    else:
+        ret, thresh = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     for contour in contours:
         area = cv2.contourArea(contour)
@@ -209,6 +280,21 @@ class SettingsWindow(QDialog):
         self.ip_input.setStyleSheet("border-radius: 5px; background-color: rgba(255, 255, 255, 0.6); padding: 8px;")
         layout.addWidget(self.ip_input, 1, 0)
 
+        # Лейбл выбора камер
+        camera_selection_label = QLabel("Устройство видеопотока: ")
+        camera_selection_label.setFont(self.font)
+        layout.addWidget(camera_selection_label, 7, 0, alignment=Qt.AlignHCenter)
+
+        # Лейбл Подключить bluetooth:
+        auto_connection_label = QLabel("Подключить bluetooth: ")
+        auto_connection_label.setFont(self.font)
+        layout.addWidget(auto_connection_label, 2, 0, alignment=Qt.AlignHCenter)
+
+        # Чекбокс auto_connection
+        self.auto_connection_checkbox = QCheckBox()
+        layout.addWidget(self.auto_connection_checkbox, 2, 1, alignment=Qt.AlignHCenter)
+        self.auto_connection_checkbox.stateChanged.connect(self.auto_connection_changed)
+
         # Лейбл Color
         color_label = QLabel("Color:")
         color_label.setFont(self.font)
@@ -259,6 +345,14 @@ class SettingsWindow(QDialog):
             f"QPushButton {{ background-color: rgba(125, 209, 156, {0}); font-size: 20px; font-family: Comic Sans MS; border-radius: 20px; }}")
         layout.addWidget(save_button, 6, 0)
 
+        # Кнопка выбора камеры
+        self.camera_button = QPushButton("IP Webcam")
+        self.camera_button.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(0, 0, 0, {button_transparency}); font-size: 24px; font-family: Comic Sans MS; border-radius: 15px; }}")
+        self.camera_button.clicked.connect(self.toggle_camera)
+        layout.addWidget(self.camera_button, 8, 0)
+
+
         # Создание виджета для поля со скроллом
         self.scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_widget)
@@ -288,6 +382,15 @@ class SettingsWindow(QDialog):
 
         self.setLayout(layout)
 
+    def toggle_camera(self):
+        global camera_update
+        if self.camera_button.text() == "IP Webcam":
+            self.camera_button.setText("PC Webcam")
+            camera_update = False
+        else:
+            self.camera_button.setText("IP Webcam")
+            camera_update = True
+
     def add_color(self):
         color_input_text = self.color_input.text()
         lower_range_text = self.lower_range_input.text()
@@ -314,6 +417,32 @@ class SettingsWindow(QDialog):
             else:
                 QMessageBox.warning(self, 'Ошибка', 'Некорректные значения диапазона цвета.')
 
+    def auto_connection_changed(self, state):
+        # Обработчик изменения состояния чекбокса auto_connection
+        global socket
+        global socket_open
+        #
+        if state == Qt.Checked:
+            print("Чекбокс auto_connection отмечен")
+            socket_open = True
+            QMessageBox.warning(self, "Подключение", "Устройство подключено по Bluetooth!")
+            try:
+                socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+                QMessageBox.warning(self, "Успешно", "Устройство подключено по Bluetooth! ")
+            except bluetooth.btcommon.BluetoothError as e:
+                QMessageBox.warning(self, "Ошибка", "Ошибка при создании сокета Bluetooth: " + str(e))
+            else:
+                try:
+                    socket.connect(('98:D3:71:F6:5D:5D', 1))
+                except bluetooth.btcommon.BluetoothError as e:
+                    QMessageBox.warning(self, "Ошибка", "Ошибка подключения к устройству Bluetooth: " + str(e))
+        else:
+            if socket_open:
+                QMessageBox.warning(self, "Отключение", "Устройство отсоединено!")
+                print("Чекбокс auto_connection снят")
+                socket.close()
+                socket_open = False
+
     def remove_color_range(self):
         color_input_text = self.color_input.text()
         if color_input_text in color_ranges:
@@ -324,6 +453,7 @@ class SettingsWindow(QDialog):
             self.update_color_range_labels()
         else:
             QMessageBox.warning(self, "Ошибка", f"Цвет {color_input_text} не найден.")
+
     def update_color_range_labels(self):
         # Очистка виджета со скроллом
         scroll_widget = self.scroll_area.widget()
@@ -436,27 +566,32 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(background_label)
 
     def start_button_clicked(self):
-        cap.open(IP)
+        if camera_update:
+            cap.open(IP)
+
         self.close()
         while True:
             ret, frame = cap.read()
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+            if Sign:
+                res = model(frame)
+                threading.Thread(target=draw_sign_boxes, args=(frame, res)).start()
+            elif Face:
+                mask = 1
+                color_name = "face"
+                find_and_draw_contours(mask, color_name, frame)
+            else:
+                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                for color_name, ranges in color_ranges.items():
+                    mask = cv2.inRange(hsv, ranges[0], ranges[1])
+                    if len(ranges) > 2:
+                        mask = cv2.bitwise_or(cv2.inRange(hsv, ranges[2], ranges[3]), mask)
+                    if color_name == DogMode:
+                        threading.Thread(target=find_and_draw_contours, args=(mask, color_name, frame)).start()
 
             draw_grid(frame)
-
-            for color_name, ranges in color_ranges.items():
-                mask = cv2.inRange(hsv, ranges[0], ranges[1])
-                if len(ranges) > 2:
-                    mask = cv2.bitwise_or(cv2.inRange(hsv, ranges[2], ranges[3]), mask)
-                if color_name == DogMode:
-                    threading.Thread(target=find_and_draw_contours, args=(mask, color_name, frame)).start()
-
             resized_frame = cv2.resize(frame, (1280, 720))
             cv2.imshow('AgroVision 1.1.2', resized_frame)
-
-            def exit_and_close_socket():
-                socket.close()
-                exit()
 
             key = cv2.waitKey(1)
             key_dict = {
@@ -470,6 +605,8 @@ class MainWindow(QMainWindow):
                 ord('r'): lambda: toggle_start(),
                 ord('.'): lambda: update_color('right'),
                 ord(','): lambda: update_color('left'),
+                ord('f'): lambda: face_search(),
+                ord('q'): lambda: sign_search(),
             }
             key_dict.get(key, lambda: None)()
 
@@ -494,11 +631,9 @@ class MainWindow(QMainWindow):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
 
-    # Укажите путь к вашей иконке в качестве аргумента
     app_icon = QIcon('AgroVision.png')
     app.setWindowIcon(app_icon)
 
-    # Укажите путь к вашей картинке в качестве аргумента
     background_image_path = 'AgroV.png'
 
     window = MainWindow(background_image_path)
